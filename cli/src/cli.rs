@@ -16,7 +16,7 @@
 
 //! Polkadot CLI library.
 
-use clap::Parser;
+use clap::{AppSettings, Parser};
 
 #[allow(missing_docs)]
 #[derive(Debug, Parser)]
@@ -43,16 +43,19 @@ pub enum Subcommand {
 	Revert(sc_cli::RevertCmd),
 
 	#[allow(missing_docs)]
-	#[clap(name = "prepare-worker", hide = true)]
+	#[clap(name = "prepare-worker", setting = AppSettings::Hidden)]
 	PvfPrepareWorker(ValidationWorkerCommand),
 
 	#[allow(missing_docs)]
-	#[clap(name = "execute-worker", hide = true)]
+	#[clap(name = "execute-worker", setting = AppSettings::Hidden)]
 	PvfExecuteWorker(ValidationWorkerCommand),
 
 	/// The custom benchmark subcommand benchmarking runtime pallets.
 	#[clap(name = "benchmark", about = "Benchmark runtime pallets.")]
 	Benchmark(frame_benchmarking_cli::BenchmarkCmd),
+
+	#[clap(name = "benchmark-storage", about = "Benchmark storage speed.")]
+	BenchmarkStorage(frame_benchmarking_cli::StorageCmd),
 
 	/// Runs performance checks such as PVF compilation in order to measure machine
 	/// capabilities of running a validator.
@@ -115,14 +118,7 @@ pub struct RunCmd {
 	/// Must be valid socket address, of format `IP:Port`
 	/// commonly `127.0.0.1:6831`.
 	#[clap(long)]
-	pub jaeger_agent: Option<String>,
-
-	/// Add the destination address to the `pyroscope` agent.
-	///
-	/// Must be valid socket address, of format `IP:Port`
-	/// commonly `127.0.0.1:4040`.
-	#[clap(long)]
-	pub pyroscope_server: Option<String>,
+	pub jaeger_agent: Option<std::net::SocketAddr>,
 }
 
 #[allow(missing_docs)]

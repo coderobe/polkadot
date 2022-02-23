@@ -20,7 +20,6 @@ use log::info;
 use sc_cli::{Role, RuntimeVersion, SubstrateCli};
 use service::{self, IdentifyVariant};
 use sp_core::crypto::Ss58AddressFormatRegistry;
-use std::net::ToSocketAddrs;
 
 pub use crate::error::Error;
 pub use polkadot_performance_test::PerfCheckError;
@@ -267,17 +266,7 @@ where
 		info!("----------------------------");
 	}
 
-	let jaeger_agent = if let Some(ref jaeger_agent) = cli.run.jaeger_agent {
-		Some(
-			jaeger_agent
-				.to_socket_addrs()
-				.map_err(Error::AddressResolutionFailure)?
-				.next()
-				.ok_or_else(|| Error::AddressResolutionMissing)?,
-		)
-	} else {
-		None
-	};
+	let jaeger_agent = cli.run.jaeger_agent;
 
 	runner.run_node_until_exit(move |config| async move {
 		let role = config.role.clone();
@@ -303,31 +292,6 @@ where
 /// Parses polkadot specific CLI arguments and run the service.
 pub fn run() -> Result<()> {
 	let cli: Cli = Cli::from_args();
-
-	#[cfg(feature = "pyroscope")]
-	let mut pyroscope_agent_maybe = if let Some(ref agent_addr) = cli.run.pyroscope_server {
-		let address = agent_addr
-			.to_socket_addrs()
-			.map_err(Error::AddressResolutionFailure)?
-			.next()
-			.ok_or_else(|| Error::AddressResolutionMissing)?;
-		// The pyroscope agent requires a `http://` prefix, so we just do that.
-		let mut agent = pyro::PyroscopeAgent::builder(
-			"http://".to_owned() + address.to_string().as_str(),
-			"polkadot".to_owned(),
-		)
-		.sample_rate(113)
-		.build()?;
-		agent.start();
-		Some(agent)
-	} else {
-		None
-	};
-
-	#[cfg(not(feature = "pyroscope"))]
-	if cli.run.pyroscope_server.is_some() {
-		return Err(Error::PyroscopeNotCompiledIn)
-	}
 
 	match &cli.subcommand {
 		None => run_node_inner(cli, service::RealOverseerGen, polkadot_node_metrics::logger_hook()),
@@ -472,8 +436,25 @@ pub fn run() -> Result<()> {
 					.map_err(|e| Error::SubstrateCli(e))
 				})?)
 			}
+			// TODO why no rococo?
 			#[cfg(not(feature = "polkadot-native"))]
 			panic!("No runtime feature (polkadot, kusama, westend, rococo) is enabled")
+		},
+		Some(Subcommand::BenchmarkStorage(cmd)) => {
+			let runner = cli.create_runner(cmd)?;
+			let chain_spec = &runner.config().chain_spec;
+			set_default_ss58_version(chain_spec);
+
+			Ok(runner.async_run(|mut config| {
+				let (client, backend, _, task_manager) = service::new_chain_ops(&mut config, None)?;
+				let db = backend.expose_db();
+				let storage = backend.expose_storage();
+
+				Ok((
+					cmd.run(config, client, db, storage).map_err(Error::SubstrateCli),
+					task_manager,
+				))
+			})?)
 		},
 		Some(Subcommand::HostPerfCheck) => {
 			let mut builder = sc_cli::LoggerBuilder::new("");
@@ -545,10 +526,5 @@ pub fn run() -> Result<()> {
 		)
 		.into()),
 	}?;
-
-	#[cfg(feature = "pyroscope")]
-	if let Some(mut pyroscope_agent) = pyroscope_agent_maybe.take() {
-		pyroscope_agent.stop();
-	}
 	Ok(())
 }
